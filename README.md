@@ -1,3 +1,7 @@
-# globe-5g-the101-tm
+Tampermonkey helpers for Globe at Home 5G router developer mode.
 
-Globe at Home 5G — Router admin developer mode
+What it is
+
+script.js — bypasses client checks using custom headers & query params.
+
+scriptHttps.js — automates developer-password login and exposes GPS/PLMN test buttons.
