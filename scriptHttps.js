@@ -14,11 +14,28 @@
 (function () {
     'use strict';
 
-    addButton()
+    if (window.location.hash.startsWith('#/login')) {
+        localStorage.removeItem('token')
+    }
 
-    function addButton() {
+    if (window.location.hash.startsWith('#/')) {
+        setDeveloperMode()
+    }
+
+    
+    const container = document.createElement('div')
+    container.style = 'position: fixed; bottom: 5px; right: 5px; display: flex; gap: 2px;'
+    document.querySelector('html').appendChild(container)
+
+
+    addGPSButton()
+    addPLMNButton()
+
+
+    function addGPSButton() {
         const button = document.createElement('button')
-        button.style = 'position: fixed; bottom: 5px; right: 5px; padding: 5px;'
+        button.style = 'padding: 5px;'
+
         const updateBtn = async () => {
             const isGPSOff = await getIsGPSOff()
             button.innerHTML = 'something went wrong!'
@@ -30,14 +47,56 @@
             await setGps(!isGPSOff)
             updateBtn()
         }
-        document.querySelector('html').appendChild(button)
+        container.appendChild(button)
+    }
+
+
+    function addPLMNButton() {
+        const buttonUnlock = document.createElement('button')
+        buttonUnlock.style = 'padding: 5px;'
+        buttonUnlock.onclick = async () => {
+            const ok = await unlockPLMN(true)
+            alert(ok ? 'success!' : 'something went wrong')
+        }
+
+        const buttonLock = document.createElement('button')
+        buttonLock.style = 'padding: 5px;'
+        buttonLock.onclick = async () => {
+            const ok = await unlockPLMN(true)
+            alert(ok ? 'success!' : 'something went wrong')
+        }
+
+        buttonLock.innerHTML = 'Lock PLMN'
+        buttonUnlock.innerHTML = 'UNLock PLMN'
+
+        container.appendChild(buttonUnlock)
+        container.appendChild(buttonLock)
+    }
+
+    async function unlockPLMN(unlock = true) {
+        const flag = unlock ? 'set_plmn_unlock' : 'set_plmn_lock'
+
+        const res = await fetch(`/ubus/?flag=${flag}&t=`, {
+            headers: generateHeaders(), method: 'post', body: JSON.stringify({
+                "jsonrpc": "2.0",
+                "method": "call",
+                "params": [
+                    getUserToken(),
+                    "mtk.cell",
+                    flag,
+                    { "dtoken": null }
+                ]
+            })
+        })
+
+        return (await res.json())?.result?.[1]?.code === '200'
     }
 
 
 
     async function getIsGPSOff() {
         const res = await fetch('/cgi-bin/luci/admin/jt_gps/get_gps?flag=get_gps&t=', { headers: generateHeaders() })
-        return (await res.json())?.data?.gps_switch === 'disable' ? 0 : 1
+        return (await res.json())?.data?.gps_switch !== 'disable'
     }
 
     async function getIsDeveloperMode() {
@@ -107,8 +166,7 @@
                 "jsonrpc": "2.0",
                 "method": "call",
                 "params": [
-                    window.location.protocol.startsWith('https') ? 'e0283500a72b0bb9f66a249c37947947' :
-                        "75e78850efb6b2f8eef0ba722cde45df",
+                    getUserToken(),
                     "jytl_api",
                     "devinfo_get",
                     {}
@@ -127,8 +185,6 @@
         const isDev = await getIsDeveloperMode()
         const token = getUserToken()
 
-        console.log({ isDev, token })
-
         if (!token) {
             setTimeout(() => { setDeveloperMode() }, 1000)
             return
@@ -139,7 +195,7 @@
 
         const productSN = await getProductSn()
         const passwd = await generateHash(productSN)
-
+        console.log({ productSN, passwd })
 
         const payload = {
             "t": new Date().getTime(),
@@ -155,10 +211,5 @@
         })
 
         window.location.reload()
-    }
-
-
-    if (window.location.pathname === '/') {
-        setDeveloperMode()
     }
 })();
