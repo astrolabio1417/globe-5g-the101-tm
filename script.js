@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         The101Bypass
 // @namespace    http://tampermonkey.net/
-// @version      2025-10-07
+// @version      2025-11-25
 // @description  Globe The 101 developer and openwrt bypass
 // @author       Rouel
 // @match        *://192.168.0.1/*
@@ -14,133 +14,84 @@
 (function () {
     'use strict';
 
+    let devPassword = ""
     const editedKey = 'edited'
     const devResponse = { "data": { "develop_mode": 1 }, "code": 0 }
     const encodedDevUrl = new URL("data:application/json," + encodeURIComponent(JSON.stringify(devResponse)))
     const devPath = '/cgi-bin/luci/admin/jt_system/get_develop_mode'
 
-    function isCgi(u) {
-        return u.pathname.startsWith("/cgi-bin/")
-    }
-
-    function updateSearchParams(u) {
-        const iscgi = isCgi(u)
-        if (!iscgi) return
-        u.searchParams.set("flag", "get_develop_mode")
-        u.searchParams.set("t", new Date().getTime())
-    }
-
-    function addOWRTLink() {
-        console.log("add openwrt link")
-        const element = document.evaluate("/html/body/div/div/section/div/div/div[3]/div[1]/div[2]/div/div[2]/div", document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue
-
-        if (!element) {
-            setTimeout(addOWRTLink, 1000)
-            return
-        }
-
-        const link = document.createElement("a")
-        link.href = "/cgi-bin/luci/admin/status/overview?flag=get_develop_mode&t="
-        link.innerHTML = "OWRT"
-        link.classList.add("el-col", "el-col-6")
-        link.style = 'padding-left: 15px; padding-right: 30px; font-size: 16px; color: "rgb(0, 119, 200)"'
-        element.appendChild(link)
-
-        // dumb style
-        document.evaluate("/html/body/div/div/section/div/div/div[3]/div[1]/div[2]/div/div[2]/div", document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue.style.marginLeft = '-50px'
-    }
-
-    function rewriteUrls() {
-        // update urls
-        console.log("update links")
-
-        document.querySelectorAll(`a:not([${editedKey}])`).forEach(a => {
-            a.setAttribute(editedKey, '')
-            if (!a.href) return
-            const u = new URL(a.href)
-            if (!isCgi(u)) return
-            updateSearchParams(u)
-            a.href = u.toString()
-        })
-
-        document.querySelectorAll(`[onclick]:not([${editedKey}])`).forEach((a) => {
-            a.setAttribute(editedKey, '')
-            const f = a.onclick.toString();
-            if (typeof f !== "string") return;
-            const m = f.match(/'(\/cgi-bin\/.*)'/)
-            console.log({ m })
-            if (!m) return
-
-            const prevClick = a.onclick
-
-            a.onclick = () => {
-                prevClick()
-                const newUrl = new URL(m[1], window.location.protocol + "//" + window.location.hostname)
-                updateSearchParams(newUrl)
-                location.href = newUrl.toString()
-            }
-        });
-    }
-
-
-    function updateLuci() {
-        rewriteUrls()
-    }
-
+    // start
     if (!isCgi(new URL(window.location))) {
         addOWRTLink()
+        addDevPassword()
     } else {
         updateLuci()
         setInterval(() => updateLuci(), 1000)
     }
+    // end
 
 
-    //////////////////////////////////////////////////////////////////////////////////
-    //////////////////////////////////////////////////////////////////////////////////
+    function fixUrl(url) {
+        return new URL(url, window.location.protocol + "//" + window.location.hostname)
+    }
+
     // fetch interceptor
     window.nativeFetch = window.fetch;
 
     window.customFetch = async (request, headers) => {
-        console.log('fetch')
-        var req;
-        var response;
+        console.log('custom fetch')
+        var finalRequest;
+        const requestInput = request;
+
 
         if (typeof request == 'string') {
-            const u = new URL(request)
+            const u = new URL(fixUrl(request))
             updateSearchParams(u)
-            req = new Request(u.toString(), headers);
-            response = await window.nativeFetch(req);
-            response.requestInputObject = req;
-        } else {
+            finalRequest = new Request(u.toString(), headers);
+        } else if (request instanceof Request) {
             const u = new URL(request.url)
             updateSearchParams(u)
-            const newRequest = new Request(u.toString(), request)
-            response = await window.nativeFetch(request, headers);
-        }
 
-        if (typeof request == 'object') {
-            response.requestInputObject = request;
+            const newHeaders = new Headers(request.headers);
+
+            if (headers) {
+                new Headers(headers).forEach((value, name) => {
+                    newHeaders.set(name, value);
+                });
+            }
+
+            finalRequest = new Request(u.toString(), {
+                method: request.method,
+                headers: newHeaders,
+                body: request.body
+            })
         } else {
-            response.requestInputURL = request;
-            response.requestInputObject = req;
-
+            throw new TypeError('First argument must be a URL string or a Request object.');
         }
 
-        if (headers) { response.requestInputHeaders = headers; }
+
+        const response = await window.nativeFetch(finalRequest);
+        response.requestInputObject = finalRequest;
+
+        if (typeof requestInput === 'string') {
+            response.requestInputURL = requestInput;
+        }
+
+        if (headers) {
+            response.requestInputHeaders = headers;
+        }
+
 
         return response;
     }
 
     window.fetch = window.customFetch
 
-    //////////////////////////////////////////////////////////////////////////////////
-    //////////////////////////////////////////////////////////////////////////////////
+
     // xml interceptor
-
-
     function xmlCustomRequest(method, url, _async, data) {
         console.log("xml")
-        let u = new URL(url, window.location.protocol + "//" + window.location.hostname)
+        let u = fixUrl(url)
 
         if (url.startsWith(devPath)) { u = encodedDevUrl; }
 
@@ -165,4 +116,164 @@
         return XMLHttpRequest.prototype.nativeSend.apply(this, [data]);
     }
     XMLHttpRequest.prototype.send = XMLHttpRequest.prototype.customSend
+
+    async function addDevPassword() {
+        console.log("generating dev password...")
+        const isDev = await getIsDeveloperMode()
+        const token = getUserToken()
+
+        if (!token) {
+            setTimeout(() => { addDevPassword() }, 1000)
+            return
+        }
+
+        if (devPassword) return
+
+
+        const productSN = await getProductSn()
+        const passwd = await generateHash(productSN)
+
+        devPassword = passwd
+
+        const devPasswordEl = document.createElement('div')
+        devPasswordEl.style.padding = '2rem'
+        devPasswordEl.style.textAlign = 'center'
+        devPasswordEl.style.fontWeight = 'bolder'
+
+        devPasswordEl.innerHTML = "Developer Password: " + passwd
+        document.querySelector('body').appendChild(devPasswordEl)
+    }
+
+    async function getIsDeveloperMode() {
+        const res = await fetch('/cgi-bin/luci/admin/jt_system/get_develop_mode?flag=get_develop_mode&t=')
+        return (await res.json())?.data?.develop_mode || 0
+    }
+
+    function isCgi(u) {
+        return u.pathname.startsWith("/cgi-bin/")
+    }
+
+    function updateSearchParams(u) {
+        const iscgi = isCgi(u)
+        if (!iscgi) return
+        u.searchParams.set("flag", "get_develop_mode")
+        u.searchParams.set("t", new Date().getTime())
+    }
+
+    function addNavLinks(elements = []) {
+        const navLinkEl = document.evaluate("/html/body/div/div/section/div/div/div[3]/div[1]/div[2]/div/div[2]/div", document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue
+
+        if (!navLinkEl) {
+            setTimeout(() => addNavLinks(elements), 1000)
+            return
+        }
+
+        elements.forEach(el => {
+            navLinkEl.appendChild(el)
+        })
+
+        // fix dumb style
+        document.evaluate("/html/body/div/div/section/div/div/div[3]/div[1]/div[2]/div/div[2]/div", document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue.style.marginLeft = '-50px'
+    }
+
+
+    function addOWRTLink() {
+        console.log("add openwrt link")
+        const openWRTlink = document.createElement("a")
+        openWRTlink.href = "/cgi-bin/luci/admin/status/overview?flag=get_develop_mode&t="
+        openWRTlink.innerHTML = "OWRT"
+        openWRTlink.classList.add("el-col", "el-col-6")
+        openWRTlink.style = 'padding-left: 15px; padding-right: 30px; font-size: 16px; color: "rgb(0, 119, 200)"'
+        addNavLinks([openWRTlink])
+    }
+
+    function rewriteUrls() {
+        console.log("update links")
+
+        document.querySelectorAll(`a:not([${editedKey}])`).forEach(a => {
+            a.setAttribute(editedKey, '')
+            if (!a.href) return
+            const u = new URL(a.href)
+            if (!isCgi(u)) return
+            updateSearchParams(u)
+            a.href = u.toString()
+        })
+
+        document.querySelectorAll(`[onclick]:not([${editedKey}])`).forEach((a) => {
+            a.setAttribute(editedKey, '')
+            const f = a.onclick.toString();
+            if (typeof f !== "string") return;
+            const m = f.match(/'(\/cgi-bin\/.*)'/)
+            if (!m) return
+
+            const prevClick = a.onclick
+
+            a.onclick = () => {
+                prevClick()
+                const newUrl = fixUrl(m[1])
+                updateSearchParams(newUrl)
+                location.href = newUrl.toString()
+            }
+        });
+    }
+
+
+    function updateLuci() {
+        rewriteUrls()
+    }
+
+
+    function getUserToken() {
+        return localStorage.getItem('token') || ""
+    }
+
+    async function generateHash(sn) {
+        const input = `${sn}+*#developer*#rain*#`;
+
+        // Hash using Web Crypto API (returns ArrayBuffer)
+        const encoder = new TextEncoder();
+        const data = encoder.encode(input);
+        const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+
+        // Convert ArrayBuffer → hex string
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const hashHex = hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+
+        // Simulate: cut -c 1-15,50-64 (1-based)
+        const part1 = hashHex.slice(0, 15);
+        const part2 = hashHex.slice(49, 64);
+        return part1 + part2;
+    }
+
+    async function getProductSn() {
+        const res = await fetch("/ubus/?flag=devinfo_get&t=" + new Date().getTime(), {
+            method: "post",
+            body: JSON.stringify({
+                "jsonrpc": "2.0",
+                "method": "call",
+                "params": [
+                    getUserToken(),
+                    "jytl_api",
+                    "devinfo_get",
+                    {}
+                ]
+            }),
+            headers: generateHeaders("devinfo_get")
+        })
+
+        const data = await res.json()
+        return data?.result?.[1]?.data?.productSN
+    }
+
+    function generateHeaders(flag = "") {
+        const h = {
+            token: getUserToken(),
+            "x-requested-with": "XMLHttpRequest",
+            "content-type": "application/json"
+        }
+
+        if (h) { h.flag = flag }
+
+        return h
+    }
 })();
