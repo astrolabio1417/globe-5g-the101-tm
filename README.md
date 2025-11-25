@@ -1,20 +1,16 @@
-
-
-
 # TAMPERMONKEY SCRIPT — GLOBE 5G (THE 101)
 
-Globe at Home 5G — LuCI / OpenWrt fixes & Router admin developer mode and scripts for old router version
+Script for Globe 5G Router: Enables Developer Mode and displays the generated developer password. Tested only on RA_M2_v3.6.06g (due to device limitations).
 
 -   [x] DEVELOPER MODE
 -   [x] OPENWRT LUCI PAGE
 -   [x] UNLOCK 4/5G BAND LOCKING
 -   [x] UNLOCK ALL NETWORKS
--   [x] IMEI CHANGER
+-   [x] CHANGE IMEI SCRIPT
 
+script.js: Bypasses router client checks using custom headers and query parameters to enable hidden features.
 
-
-script.js — bypasses client checks using custom headers & query params.
-scriptHttps.js — automates developer-password login and exposes GPS/PLMN test buttons.
+generateDevPassword.js: A password generator utility that can be executed via the browser console to reveal the router's generated developer password.
 
 ```
 # USE THIS AT YOUR OWN RISK.

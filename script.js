@@ -119,7 +119,6 @@
 
     async function addDevPassword() {
         console.log("generating dev password...")
-        const isDev = await getIsDeveloperMode()
         const token = getUserToken()
 
         if (!token) {
@@ -129,19 +128,32 @@
 
         if (devPassword) return
 
+        const container = document.createElement('div')
+        container.style.padding = '2rem'
+        container.style.textAlign = 'center'
+        container.style.fontWeight = 'bolder'
+        container.style.display = 'flex'
+        container.style.justifyContent = 'center'
+        container.style.alignItems = 'center'
+        container.style.flexDirection = 'column'
 
+        // script source
+        const sourceEl = document.createElement('a')
+        sourceEl.href = "https://github.com/astrolabio1417/globe-5g-the101-tm"
+        sourceEl.innerHTML = "Source Code"
+
+        container.appendChild(sourceEl)
+        document.querySelector('html').appendChild(container)
+
+
+        // generated password
         const productSN = await getProductSn()
         const passwd = await generateHash(productSN)
-
         devPassword = passwd
 
         const devPasswordEl = document.createElement('div')
-        devPasswordEl.style.padding = '2rem'
-        devPasswordEl.style.textAlign = 'center'
-        devPasswordEl.style.fontWeight = 'bolder'
-
         devPasswordEl.innerHTML = "Developer Password: " + passwd
-        document.querySelector('body').appendChild(devPasswordEl)
+        container.appendChild(devPasswordEl)
     }
 
     async function getIsDeveloperMode() {
