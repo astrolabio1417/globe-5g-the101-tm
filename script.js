@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         The101Bypass
 // @namespace    http://tampermonkey.net/
-// @version      2025-11-25
+// @version      2025-12-01
 // @description  Globe The 101 developer and openwrt bypass
 // @author       Rouel
 // @match        *://192.168.0.1/*
@@ -10,48 +10,52 @@
 // @run-at       document-start
 // ==/UserScript==
 
-
 (function () {
-    'use strict';
+    "use strict";
 
-    let devPassword = ""
-    const editedKey = 'edited'
-    const devResponse = { "data": { "develop_mode": 1 }, "code": 0 }
-    const encodedDevUrl = new URL("data:application/json," + encodeURIComponent(JSON.stringify(devResponse)))
-    const devPath = '/cgi-bin/luci/admin/jt_system/get_develop_mode'
+    const isHttps = window.location.protocol.startsWith("https");
+    const devPath = "/cgi-bin/luci/admin/jt_system/get_develop_mode";
+    const encodedDevUrl = new URL(
+        "data:application/json," +
+            encodeURIComponent(
+                JSON.stringify({ data: { develop_mode: 1 }, code: 0 })
+            )
+    );
 
-    // start
-    if (!isCgi(new URL(window.location))) {
-        addOWRTLink()
-        addDevPassword()
-    } else {
-        updateLuci()
-        setInterval(() => updateLuci(), 1000)
+    init();
+
+    function init() {
+        if (isHttps) autoSetDeveloperMode();
+
+        if (!isCgi(new URL(window.location))) {
+            addOWRTLink();
+            addFooterInfo();
+        } else {
+            setInterval(() => rewriteUrls(), 1000);
+        }
     }
-    // end
-
 
     function fixUrl(url) {
-        return new URL(url, window.location.protocol + "//" + window.location.hostname)
+        if (url.startsWith("http")) return new URL(url);
+        const baseUrl = window.location.protocol + "//" + window.location.host;
+        return new URL(url, baseUrl);
     }
 
     // fetch interceptor
     window.nativeFetch = window.fetch;
 
     window.customFetch = async (request, headers) => {
-        console.log('custom fetch')
+        console.log("custom fetch");
         var finalRequest;
         const requestInput = request;
 
-
-        if (typeof request == 'string') {
-            const u = new URL(fixUrl(request))
-            updateSearchParams(u)
+        if (typeof request == "string") {
+            const u = fixUrl(request);
+            updateSearchParams(u);
             finalRequest = new Request(u.toString(), headers);
         } else if (request instanceof Request) {
-            const u = new URL(request.url)
-            updateSearchParams(u)
-
+            const u = new URL(request.url);
+            updateSearchParams(u);
             const newHeaders = new Headers(request.headers);
 
             if (headers) {
@@ -63,17 +67,18 @@
             finalRequest = new Request(u.toString(), {
                 method: request.method,
                 headers: newHeaders,
-                body: request.body
-            })
+                body: request.body,
+            });
         } else {
-            throw new TypeError('First argument must be a URL string or a Request object.');
+            throw new TypeError(
+                "First argument must be a URL string or a Request object."
+            );
         }
-
 
         const response = await window.nativeFetch(finalRequest);
         response.requestInputObject = finalRequest;
 
-        if (typeof requestInput === 'string') {
+        if (typeof requestInput === "string") {
             response.requestInputURL = requestInput;
         }
 
@@ -81,22 +86,21 @@
             response.requestInputHeaders = headers;
         }
 
-
         return response;
-    }
+    };
 
-    window.fetch = window.customFetch
-
+    window.fetch = window.customFetch;
 
     // xml interceptor
     function xmlCustomRequest(method, url, _async, data) {
-        console.log("xml")
-        let u = fixUrl(url)
+        console.log("xml");
+        let u = fixUrl(url);
 
-        if (url.startsWith(devPath)) { u = encodedDevUrl; }
+        if (!isHttps && u.pathname.startsWith(devPath)) {
+            u = encodedDevUrl;
+        }
 
-        updateSearchParams(u)
-        console.log({ method, url: u.toString(), _async, data })
+        updateSearchParams(u);
         this.method = method;
         this.requestURL = u.toString();
         this.asynch = _async;
@@ -105,138 +109,148 @@
     }
 
     XMLHttpRequest.prototype.nativeOpen = XMLHttpRequest.prototype.open;
-    XMLHttpRequest.prototype.customOpen = xmlCustomRequest
+    XMLHttpRequest.prototype.customOpen = xmlCustomRequest;
     XMLHttpRequest.prototype.open = XMLHttpRequest.prototype.customOpen;
-
-    //////////////////////////////////////////////////////////////////////////////////
-
     XMLHttpRequest.prototype.nativeSend = XMLHttpRequest.prototype.send;
     XMLHttpRequest.prototype.customSend = function (data) {
-        console.log({ data, 'send': 1, url: this.url, type: typeof data })
         return XMLHttpRequest.prototype.nativeSend.apply(this, [data]);
-    }
-    XMLHttpRequest.prototype.send = XMLHttpRequest.prototype.customSend
+    };
+    XMLHttpRequest.prototype.send = XMLHttpRequest.prototype.customSend;
 
-    async function addDevPassword() {
-        console.log("generating dev password...")
-        const token = getUserToken()
-
-        if (!token) {
-            setTimeout(() => { addDevPassword() }, 1000)
-            return
-        }
-
-        if (devPassword) return
-
-        const container = document.createElement('div')
-        container.style.padding = '2rem'
-        container.style.textAlign = 'center'
-        container.style.fontWeight = 'bolder'
-        container.style.display = 'flex'
-        container.style.justifyContent = 'center'
-        container.style.alignItems = 'center'
-        container.style.flexDirection = 'column'
+    async function addFooterInfo() {
+        const container = document.createElement("div");
+        container.style.gap = "5px";
+        container.style.marginBlock = "2rem";
+        container.style.color = "#979797";
+        container.style.padding = "1rem";
+        container.style.textAlign = "center";
+        container.style.fontWeight = "bolder";
+        container.style.display = "flex";
+        container.style.justifyContent = "center";
+        container.style.alignItems = "center";
+        container.style.flexDirection = "column";
+        container.style.maxWidth = "40rem";
+        container.style.marginInline = "auto";
 
         // script source
-        const sourceEl = document.createElement('a')
-        sourceEl.href = "https://github.com/astrolabio1417/globe-5g-the101-tm"
-        sourceEl.innerHTML = "Source Code"
+        const sourceEl = document.createElement("a");
+        sourceEl.style.color = "#979797";
+        sourceEl.href = "https://github.com/astrolabio1417/globe-5g-the101-tm";
+        sourceEl.innerHTML = "Source Code";
 
-        container.appendChild(sourceEl)
-        document.querySelector('html').appendChild(container)
+        container.appendChild(sourceEl);
+        document.querySelector("html").appendChild(container);
 
+        const devPasswordEl = document.createElement("div");
 
-        // generated password
-        const productSN = await getProductSn()
-        const passwd = await generateHash(productSN)
-        devPassword = passwd
-
-        const devPasswordEl = document.createElement('div')
-        devPasswordEl.innerHTML = "Developer Password: " + passwd
-        container.appendChild(devPasswordEl)
+        if (isHttps) {
+            const dp = await getDevPassword();
+            devPasswordEl.innerHTML = "Developer Password: </br>" + dp;
+            container.insertBefore(devPasswordEl, sourceEl);
+        } else {
+            const httpsLink = document.createElement("a");
+            const link = new URL(window.location);
+            httpsLink.onclick = () => localStorage.removeItem("token");
+            link.protocol = "https";
+            httpsLink.href = link.toString();
+            httpsLink.innerHTML = "Switch to Auto Dev Login Version";
+            httpsLink.title =
+                "Automatically logs in as superuser using a developer password generated from the device’s ProductSN.";
+            container.insertBefore(httpsLink, sourceEl);
+        }
     }
 
     async function getIsDeveloperMode() {
-        const res = await fetch('/cgi-bin/luci/admin/jt_system/get_develop_mode?flag=get_develop_mode&t=')
-        return (await res.json())?.data?.develop_mode || 0
+        const res = await fetch(
+            "/cgi-bin/luci/admin/jt_system/get_develop_mode?flag=get_develop_mode&t="
+        );
+        return (await res.json())?.data?.develop_mode || 0;
     }
 
     function isCgi(u) {
-        return u.pathname.startsWith("/cgi-bin/")
+        return u.pathname.startsWith("/cgi-bin/");
     }
 
     function updateSearchParams(u) {
-        const iscgi = isCgi(u)
-        if (!iscgi) return
-        u.searchParams.set("flag", "get_develop_mode")
-        u.searchParams.set("t", new Date().getTime())
+        const iscgi = isCgi(u);
+        if (!iscgi) return;
+        u.searchParams.set("flag", "get_develop_mode");
+        u.searchParams.set("t", new Date().getTime());
     }
 
     function addNavLinks(elements = []) {
-        const navLinkEl = document.evaluate("/html/body/div/div/section/div/div/div[3]/div[1]/div[2]/div/div[2]/div", document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue
+        const navLinkEl = document.evaluate(
+            "/html/body/div/div/section/div/div/div[3]/div[1]/div[2]/div/div[2]/div",
+            document,
+            null,
+            XPathResult.FIRST_ORDERED_NODE_TYPE,
+            null
+        ).singleNodeValue;
 
         if (!navLinkEl) {
-            setTimeout(() => addNavLinks(elements), 1000)
-            return
+            setTimeout(() => addNavLinks(elements), 1000);
+            return;
         }
 
-        elements.forEach(el => {
-            navLinkEl.appendChild(el)
-        })
+        elements.forEach((el) => {
+            navLinkEl.appendChild(el);
+        });
 
         // fix dumb style
-        document.evaluate("/html/body/div/div/section/div/div/div[3]/div[1]/div[2]/div/div[2]/div", document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue.style.marginLeft = '-50px'
+        document.evaluate(
+            "/html/body/div/div/section/div/div/div[3]/div[1]/div[2]/div/div[2]/div",
+            document,
+            null,
+            XPathResult.FIRST_ORDERED_NODE_TYPE,
+            null
+        ).singleNodeValue.style.marginLeft = "-50px";
     }
 
-
     function addOWRTLink() {
-        console.log("add openwrt link")
-        const openWRTlink = document.createElement("a")
-        openWRTlink.href = "/cgi-bin/luci/admin/status/overview?flag=get_develop_mode&t="
-        openWRTlink.innerHTML = "OWRT"
-        openWRTlink.classList.add("el-col", "el-col-6")
-        openWRTlink.style = 'padding-left: 15px; padding-right: 30px; font-size: 16px; color: "rgb(0, 119, 200)"'
-        addNavLinks([openWRTlink])
+        const openWRTlink = document.createElement("a");
+        openWRTlink.href =
+            "/cgi-bin/luci/admin/status/overview?flag=get_develop_mode&t=";
+        openWRTlink.innerHTML = "OWRT";
+        openWRTlink.classList.add("el-col", "el-col-6");
+        openWRTlink.style =
+            'padding-left: 15px; padding-right: 30px; font-size: 16px; color: "rgb(0, 119, 200)"';
+        addNavLinks([openWRTlink]);
     }
 
     function rewriteUrls() {
-        console.log("update links")
+        const editedKey = "edited";
 
-        document.querySelectorAll(`a:not([${editedKey}])`).forEach(a => {
-            a.setAttribute(editedKey, '')
-            if (!a.href) return
-            const u = new URL(a.href)
-            if (!isCgi(u)) return
-            updateSearchParams(u)
-            a.href = u.toString()
-        })
-
-        document.querySelectorAll(`[onclick]:not([${editedKey}])`).forEach((a) => {
-            a.setAttribute(editedKey, '')
-            const f = a.onclick.toString();
-            if (typeof f !== "string") return;
-            const m = f.match(/'(\/cgi-bin\/.*)'/)
-            if (!m) return
-
-            const prevClick = a.onclick
-
-            a.onclick = () => {
-                prevClick()
-                const newUrl = fixUrl(m[1])
-                updateSearchParams(newUrl)
-                location.href = newUrl.toString()
-            }
+        document.querySelectorAll(`a:not([${editedKey}])`).forEach((a) => {
+            a.setAttribute(editedKey, "");
+            if (!a.href) return;
+            const u = new URL(a.href);
+            if (!isCgi(u)) return;
+            updateSearchParams(u);
+            a.href = u.toString();
         });
+
+        document
+            .querySelectorAll(`[onclick]:not([${editedKey}])`)
+            .forEach((a) => {
+                a.setAttribute(editedKey, "");
+                const f = a.onclick.toString();
+                if (typeof f !== "string") return;
+                const m = f.match(/'(\/cgi-bin\/.*)'/);
+                if (!m) return;
+
+                const prevClick = a.onclick;
+
+                a.onclick = () => {
+                    prevClick();
+                    const newUrl = fixUrl(m[1]);
+                    updateSearchParams(newUrl);
+                    location.href = newUrl.toString();
+                };
+            });
     }
-
-
-    function updateLuci() {
-        rewriteUrls()
-    }
-
 
     function getUserToken() {
-        return localStorage.getItem('token') || ""
+        return localStorage.getItem("token") || "";
     }
 
     async function generateHash(sn) {
@@ -249,7 +263,9 @@
 
         // Convert ArrayBuffer → hex string
         const hashArray = Array.from(new Uint8Array(hashBuffer));
-        const hashHex = hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+        const hashHex = hashArray
+            .map((b) => b.toString(16).padStart(2, "0"))
+            .join("");
 
         // Simulate: cut -c 1-15,50-64 (1-based)
         const part1 = hashHex.slice(0, 15);
@@ -258,34 +274,105 @@
     }
 
     async function getProductSn() {
-        const res = await fetch("/ubus/?flag=devinfo_get&t=" + new Date().getTime(), {
-            method: "post",
-            body: JSON.stringify({
-                "jsonrpc": "2.0",
-                "method": "call",
-                "params": [
-                    getUserToken(),
-                    "jytl_api",
-                    "devinfo_get",
-                    {}
-                ]
-            }),
-            headers: generateHeaders("devinfo_get")
-        })
+        const res = await fetch(
+            "/ubus/?flag=devinfo_get&t=" + new Date().getTime(),
+            {
+                method: "post",
+                body: JSON.stringify({
+                    jsonrpc: "2.0",
+                    method: "call",
+                    params: [getUserToken(), "jytl_api", "devinfo_get", {}],
+                }),
+                headers: generateHeaders("devinfo_get"),
+            }
+        );
 
-        const data = await res.json()
-        return data?.result?.[1]?.data?.productSN
+        const data = await res.json();
+        return data?.result?.[1]?.data?.productSN;
     }
 
     function generateHeaders(flag = "") {
         const h = {
             token: getUserToken(),
             "x-requested-with": "XMLHttpRequest",
-            "content-type": "application/json"
+            "content-type": "application/json",
+        };
+
+        if (h) {
+            h.flag = flag;
         }
 
-        if (h) { h.flag = flag }
+        return h;
+    }
 
-        return h
+    async function wait(n = 1000) {
+        await new Promise((resolve) => setTimeout(resolve, n));
+    }
+
+    async function getDevPassword() {
+        if (!window.location.protocol.startsWith("https")) {
+            throw new Error("Crypto is only available on HTTPS pages.");
+        }
+
+        while (!getUserToken()) await wait();
+
+        const productSN = await getProductSn();
+        const passwd = await generateHash(productSN);
+        console.log({ productSN, passwd });
+        return passwd;
+    }
+
+    function setCookie(name, value, days, sameSite = "Lax") {
+        let expires = "Session";
+
+        if (days) {
+            const date = new Date();
+            date.setTime(date.getTime() + days * 24 * 60 * 60 * 1000);
+            expires = date.toUTCString();
+        }
+
+        document.cookie = `${name}=${
+            value || ""
+        }; expires=${expires}; path=/; SameSite=${sameSite}`;
+    }
+
+    async function autoSetDeveloperMode() {
+        while (true) {
+            await setDeveloperMode();
+            await wait();
+        }
+    }
+
+    async function setDeveloperMode() {
+        if (!getUserToken()) return;
+        if (await getIsDeveloperMode()) return;
+        if (document.cookie.includes("superadmin")) return;
+
+        const passwd = await getDevPassword();
+        const payload = {
+            t: new Date().getTime(),
+            enable: "1",
+            username: "admin",
+            passwd: passwd,
+        };
+        const data = await fetch(
+            "/cgi-bin/luci/admin/jt_system/set_develop_mode?flag=set_develop_mode&t=" +
+                payload.t,
+            {
+                method: "post",
+                body: JSON.stringify(payload),
+                headers: generateHeaders("set_develop_mode"),
+            }
+        );
+        const { dtoken, code } = (await data.json()) ?? {};
+
+        if (!dtoken || code !== 0) {
+            alert("Can't set_develop_mode!");
+            wait(2500);
+            return;
+        }
+
+        setCookie("cookieUsername", "superadmin", 1);
+        setCookie("dtoken", dtoken, 0, "");
     }
 })();
